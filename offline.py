@@ -43,22 +43,21 @@ class Offline(MainUi):
     def status_learn(self):
 
         def learn_tread():
-            self.keyboard_listen()
             rect = self.get_rect()
             input_1 = [1, 0, 0, 0, 0]
             input_2 = [1, 0, 0]
+
+            thread_key = threading.Thread(target=learn_keyboard)
+            thread_key.setDaemon(True)
+            thread_key.start()
 
             while self.learn_flag:
                 time.sleep(np.random.random())
                 try:
                     sample_temp = self.get_sample(rect)
                     self.push_sample(sample_temp, input_1, input_2)
-
                 except IndexError as e:
                     print(e)
-                    self.right_button_1.setText("开始学习")
-                    self.learn_flag = False
-
                     if self.sample[0, 0] == 0 and self.sample.shape[0] > self.time_sample_delete \
                             and self.sample_key_2.shape[0] > 1:
 
@@ -71,14 +70,25 @@ class Offline(MainUi):
                     elif self.sample[0, 0] != 0 and self.sample.shape[0] > self.time_sample_delete \
                             and self.sample_key_2.shape[0] > 1:
 
-                        self.save_sample(self.sample[1: -self.time_sample_delete, :],
-                                         self.input_1[1:-self.time_sample_delete, :],
-                                         self.input_2[1:-self.time_sample_delete, :],
-                                         self.sample_key_1[1:-1, :], self.key_input_1[1:-1, :],
-                                         self.sample_key_2[1:-1, :], self.key_input_2[1:-1, :]
+                        self.save_sample(self.sample[0: -self.time_sample_delete, :],
+                                         self.input_1[0:-self.time_sample_delete, :],
+                                         self.input_2[0:-self.time_sample_delete, :],
+                                         self.sample_key_1[0:-1, :], self.key_input_1[0:-1, :],
+                                         self.sample_key_2[0:-1, :], self.key_input_2[0:-1, :]
                                          )
                     else:
                         break
+
+                    self.right_button_1.setText("开始学习")
+                    self.learn_flag = False
+
+        def learn_keyboard():
+            # 监听键盘操作事件
+            hook_manager = PyHook3.HookManager()
+            hook_manager.KeyDown = self.key_down_sample
+            hook_manager.KeyUp = self.key_up_sample
+            hook_manager.HookKeyboard()
+            pythoncom.PumpMessages()
 
         try:
             self.data = so.loadmat("Data.mat")
@@ -104,9 +114,11 @@ class Offline(MainUi):
             self.right_button_1.setText("停止学习")
             self.learn_flag = True
 
-            tread = threading.Thread(target=learn_tread)
-            tread.setDaemon()
-            tread.start()
+            thread_time = threading.Thread(target=learn_tread)
+
+            thread_time.setDaemon(True)
+            thread_time.start()
+
         else:
             self.right_button_1.setText("开始学习")
             self.learn_flag = False
@@ -143,19 +155,19 @@ class Offline(MainUi):
         if barrier.shape[0] == 0:
             sample_temp = [infinity, infinity, infinity, infinity, infinity, infinity]
         elif barrier.shape[0] == 1:
-            sample_temp = [(barrier[0, 0] - dino[0, 0] + dino[0, 2])/dino[0, 0],
-                           (barrier[0, 0] + barrier[0, 2] - dino[0, 0])/dino[0, 0],
+            sample_temp = [(barrier[0, 0] - dino[0] + dino[2])/dino[0],
+                           (barrier[0, 0] + barrier[0, 2] - dino[0])/dino[0],
                            infinity,
                            infinity,
-                           (barrier[0, 1])/dino[0, 0],
-                           (barrier[0, 1] + barrier[0, 3])/dino[0, 0]]
+                           (barrier[0, 1])/dino[0],
+                           (barrier[0, 1] + barrier[0, 3])/dino[0]]
         else:
-            sample_temp = [(barrier[0, 0] - dino[0, 0] + dino[0, 2])/dino[0, 0],
-                           (barrier[0, 0] + barrier[0, 2] - dino[0, 0])/dino[0, 0],
-                           (barrier[1, 0] - dino[0, 0] + dino[0, 2])/dino[0, 0],
-                           (barrier[1, 0] + barrier[1, 2] - dino[0, 0])/dino[0, 0],
-                           (barrier[0, 1])/dino[0, 0],
-                           (barrier[0, 1] + barrier[0, 3])/dino[0, 0]]
+            sample_temp = [(barrier[0, 0] - dino[0] + dino[2])/dino[0],
+                           (barrier[0, 0] + barrier[0, 2] - dino[0])/dino[0],
+                           (barrier[1, 0] - dino[0] + dino[2])/dino[0],
+                           (barrier[1, 0] + barrier[1, 2] - dino[0])/dino[0],
+                           (barrier[0, 1])/dino[0],
+                           (barrier[0, 1] + barrier[0, 3])/dino[0]]
 
         return sample_temp
 
@@ -165,11 +177,12 @@ class Offline(MainUi):
         self.input_2 = np.row_stack((self.input_2, input_2))
 
     def push_sample_key(self, sample_key, key_input_1, key_input_2):
-        if key_input_2 == 0:
+        if key_input_2.size == 0:
             self.sample_key_1 = np.row_stack((self.sample_key_1, sample_key))
             self.key_input_1 = np.row_stack((self.key_input_1, key_input_1))
         else:
             self.sample_key_2 = np.row_stack((self.sample_key_2, sample_key))
+            self.key_input_1 = np.row_stack((self.key_input_1, key_input_1))
             self.key_input_2 = np.row_stack((self.key_input_2, key_input_2))
 
     def save_sample(self, sample, input_1, input_2, sample_key_1, key_input_1, sample_key_2, key_input_2):
@@ -182,46 +195,53 @@ class Offline(MainUi):
         self.data['key_input_2'] = key_input_2
         so.savemat("Data.mat", self.data)
 
-    def keyboard_listen(self):
-        # 监听键盘操作事件
-        hook_manager = PyHook3.HookManager()
-        hook_manager.KeyDown = self.key_down_sample
-        hook_manager.KeyUp = self.key_up_sample
-        pythoncom.PumpMessages()
-
     def key_down_sample(self, event):
-        if not self.key_down and event.Key == "Down":
+        if self.learn_flag and not self.key_down and event.Key == "Down":
             rect = self.get_rect()
             self.key_down = True
-            sample_key = self.get_sample(rect)
-            key_input_1 = np.array([0, 1, 0, 0, 0])
-            key_input_2 = np.array([0, 1, 0])
-            self.push_sample_key(sample_key, key_input_1, key_input_2)
-        elif not self.key_down and event.Key == "Up":
-            rect = self.get_rect()
-            self.key_down = True
-            sample_key = self.get_sample(rect)
+            try:
+                sample_key = self.get_sample(rect)
+            except IndexError:
+                return True
             key_input_1 = np.array([0, 0, 0, 1, 0])
             key_input_2 = np.array([0, 0, 1])
             self.push_sample_key(sample_key, key_input_1, key_input_2)
-        else:
-            return
-
-    def key_up_sample(self, event):
-        if event.Key == "Down":
-            rect = self.get_rect()
-            self.key_down = False
-            sample_key = self.get_sample(rect)
-            key_input_1 = np.array([0, 0, 1, 0, 0])
-            self.push_sample_key(sample_key, key_input_1, 0)
-        elif event.Key == "Up":
+        elif self.learn_flag and not self.key_down and event.Key == "Up":
             rect = self.get_rect()
             self.key_down = True
-            sample_key = self.get_sample(rect)
-            key_input_1 = np.array([0, 0, 0, 0, 1])
-            self.push_sample_key(sample_key, key_input_1, 0)
+            try:
+                sample_key = self.get_sample(rect)
+            except IndexError:
+                return True
+            key_input_1 = np.array([0, 1, 0, 0, 0])
+            key_input_2 = np.array([0, 1, 0])
+            self.push_sample_key(sample_key, key_input_1, key_input_2)
         else:
-            return
+            pass
+        return True
+
+    def key_up_sample(self, event):
+        if self.learn_flag and event.Key == "Down":
+            rect = self.get_rect()
+            self.key_down = False
+            try:
+                sample_key = self.get_sample(rect)
+            except IndexError:
+                return True
+            key_input_1 = np.array([0, 0, 0, 0, 1])
+            self.push_sample_key(sample_key, key_input_1, np.array([]))
+        elif self.learn_flag and event.Key == "Up":
+            rect = self.get_rect()
+            self.key_down = False
+            try:
+                sample_key = self.get_sample(rect)
+            except IndexError:
+                return True
+            key_input_1 = np.array([0, 0, 1, 0, 0])
+            self.push_sample_key(sample_key, key_input_1,  np.array([]))
+        else:
+            pass
+        return True
 
     def get_img(self, rect):
         pic = ImageGrab.grab(rect)
